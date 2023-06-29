@@ -1,0 +1,7 @@
+---
+title: "stratified_data"
+author: "Pham Gia Cuong"
+date: '2023-06-28'
+output: html_document
+---
+

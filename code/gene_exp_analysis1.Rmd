@@ -9,13 +9,14 @@ output: html_document
 require(DESeq2)
 require('biomaRt')
 require(survival)
+require(data.table)
 ```
 
 ```{r reading transcriptomic data}
-gene.exp <- read.csv("/fast/work/users/phgi10_c/Uni/final_project/final_data/htseq_count/TCGA-BLCA.htseq_counts.tsv.gz",
+gene.exp <- read.table("/fast/work/users/phgi10_c/Uni/final_project/final_data/htseq_count/TCGA-BLCA.htseq_counts.tsv.gz",
                      header = TRUE,sep = "\t",stringsAsFactors = FALSE)
 #colnames(gene.exp) <- gsub("\\.","-",colnames(gene.exp))
-
+gene.exp <- gene.exp[grepl("ENS", gene.exp$Ensembl_ID), ]
 gene.exp <- gene.exp[, order(names(gene.exp))]
 
 genecode.id <- gene.exp[,1]
@@ -24,9 +25,12 @@ fixed_names <- sapply(strsplit(genecode.id, ".", fixed=T), function(x) x[1])
 gene.exp[,1] <- fixed_names
 
 row.names(gene.exp) <- gene.exp[,1]
-genes.arr <- row.names(gene.exp)
 gene.exp <- gene.exp[-1]
 gene.exp <- 2^gene.exp -1
+gene.exp <- subset(gene.exp, !(rowSums(gene.exp < 5) == ncol(gene.exp)))
+
+genes.arr <- row.names(gene.exp) #name of genes
+write.table(gene.exp, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/count_data.csv", sep = "\t", quote = FALSE, row.names = TRUE)
 gene.exp <- as.data.frame(lapply(gene.exp, as.integer))
 ```
 
@@ -44,8 +48,9 @@ phenotype <- phenotype[order(phenotype$submitter_id.samples), ]
 phenotype$submitter_id.samples <- gsub("\\-",".",phenotype$submitter_id.samples)
 ```
 
+
 ```{r Preprocess data}
-overlapped.samples <- colnames(gene.exp)[-1] #samples from transcriptomic data
+overlapped.samples <- colnames(gene.exp) #samples from transcriptomic data
 clin.data <- clin.data[clin.data$sample %in% overlapped.samples, ]
 phenotype <- phenotype[phenotype$submitter_id.samples %in% clin.data$sample, ]
 phenotype <- phenotype[!grepl("not reported", phenotype$tumor_stage.diagnoses), ]
@@ -56,6 +61,7 @@ phenotype$tumor_stage.diagnoses <- factor(phenotype$tumor_stage.diagnoses, level
 phenotype$tumor_stage.diagnoses <- as.numeric(phenotype$tumor_stage.diagnoses)
 clin.data$stage <- phenotype$tumor_stage.diagnoses
 write.table(clin.data, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/clinical.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+
 ```
 
 ```{r Deseq2 without stage}
@@ -67,14 +73,18 @@ dds <- estimateSizeFactors(dds)
 dds <- DESeq(dds)
 res <- results(dds)
 ```
-
+```{r}
+res$gene <- genes.arr
+res
+```
 ```{r MA plot}
 plotMA(res)
 ```
 
 ```{r volcano plot}
-plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
-    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+
+#plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    #xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
 ```
 
 ```{r Deseq2 with stage}
@@ -101,13 +111,15 @@ sig_indices_stage <-which(res_stage$padj < 0.01 & (res_stage$log2FoldChange < -2
 ######
 normalizedCounts_stage <- as.data.frame(counts(dds_stage, normalized = TRUE))
 normalizedCounts <- as.data.frame(counts(dds, normalized = TRUE))
+rawCounts <- as.data.frame(counts(dds, normalized = FALSE))
 #####
 normalizedCounts_stage$genes <- genes.arr
 normalizedCounts$genes <- genes.arr
+rawCounts$genes <- genes.arr
 #####
 significantGenes_stage <- normalizedCounts_stage[sig_indices_stage,]
 significantGenes <- normalizedCounts[sig_indices,]
-
+significantGenes_raw <- rawCounts[sig_indices,]
 ```
 
 ```{r biomart + cnv}
@@ -130,6 +142,7 @@ filt.annotLookup <- subset(annotLookup, hgnc_symbol != '')
 ```{r get overlapped genes of CNV and transcriptomic analysis}
 matched.genes <- filt.annotLookup[filt.annotLookup$hgnc_symbol %in% cnv_final$GeneSymbol, ]
 cnv_genes_exp <- which(significantGenes$genes %in% matched.genes$ensembl_gene_id)
+cnv_gene_raw <- which(significantGenes_raw$genes %in% matched.genes$ensembl_gene_id)
 cnv_genes_exp_stage <- which(significantGenes_stage$genes %in% matched.genes$ensembl_gene_id)
 ```
 
@@ -140,14 +153,17 @@ sig_genes_ann_stage <- matched.genes[which(matched.genes$ensembl_gene_id %in% si
 
 ```{r final data for training}
 significantGenes_cnv <- significantGenes[cnv_genes_exp,]
+significantGenes_cnv_raw <- significantGenes_raw[cnv_gene_raw,]
 significantGenes_cnv_stage <- significantGenes_stage[cnv_genes_exp_stage,]
 write.table(significantGenes_cnv, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 write.table(significantGenes_cnv_stage, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_stage.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
-
+write.table(significantGenes_cnv_raw, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 ```
 
-
-```{r }
+# Survival Analysis
+```{r multivariate cox hazard model}
+significantGenes_cnv <- read.csv("../results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv",header=T,sep="\t")
+clin.data <- read.csv("../results/gene_exp_analysis/clinical.csv",header=T,sep="\t")
 all_genes <- significantGenes_cnv$genes
 gene_expression <- significantGenes_cnv[,-ncol(significantGenes_cnv)]
 row.names(gene_expression) <- all_genes
@@ -156,38 +172,22 @@ survival_data <- clin.data
 rownames(survival_data) <- survival_data$sample
 merged_data <- merge(gene_expression, survival_data, by = "row.names",all = TRUE)
 surv_obj <- with(merged_data, Surv(OS.time, OS))
-cox_model <- coxph(surv_obj ~ ., data = merged_data)
+cox_model <- coxph(surv_obj ~ . - Row.names - sample - X_PATIENT - OS - OS.time - stage, data = merged_data)
+```
+
+```{r}
 summary(cox_model)
 ```
 
 ```{r}
-all_genes <- significantGenes_cnv$genes
-gene_expression <- significantGenes_cnv[,-ncol(significantGenes_cnv)]
-row.names(gene_expression) <- all_genes
-gene_expression <- t(gene_expression)
-survival_data <- clin.data
-rownames(survival_data) <- survival_data$sample
-for (i in all_gene){
-    fin_dat <- data.frame(gene = dys_rna[row.names(dys_rna) == i, ])
-    fin_dat <- merge( fin_dat, new_clin, by = 0)
-    if (dim(table(fin_dat$gene)) > 1){
-    fit2 <- survdiff(Surv(new_death, event) ~ gene, data = fin_dat)
-    pv <- ifelse ( is.na(fit2),next,(round(1 - pchisq(fit2$chisq, length(fit2$n) - 1),3)))[[1]]
-
-   gene <- i
-   dysregulated <- table(fin_dat$gene)[1]
-   intact <- table(fin_dat$gene)[2]
-   pval = pv
-   result[i, ] = c(gene, pval, dysregulated, intact)
-    }
-}
+sfit <- survfit(Surv(OS.time, OS)~ stage, data=merged_data)
+plot(sfit)
 ```
 ```{r}
-
+gene_id <- c("ENSG00000184697","ENSG00000237412","ENSG00000265787","ENSG00000277586","ENSG00000121871")
+row.names(matched.genes) <- matched.genes$ensembl_gene_id
+matched.genes[gene_id,]
 ```
-
-
-
 
 
 
