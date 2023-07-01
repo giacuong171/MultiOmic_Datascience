@@ -12,6 +12,7 @@ require(survival)
 require(data.table)
 ```
 
+This part, I loading the raw htseq-count of transcriptomic data, convert it to read count data and write it to a file.
 ```{r reading transcriptomic data}
 gene.exp <- read.table("/fast/work/users/phgi10_c/Uni/final_project/final_data/htseq_count/TCGA-BLCA.htseq_counts.tsv.gz",
                      header = TRUE,sep = "\t",stringsAsFactors = FALSE)
@@ -48,7 +49,7 @@ phenotype <- phenotype[order(phenotype$submitter_id.samples), ]
 phenotype$submitter_id.samples <- gsub("\\-",".",phenotype$submitter_id.samples)
 ```
 
-
+Clinical data including stage of patient is here.
 ```{r Preprocess data}
 overlapped.samples <- colnames(gene.exp) #samples from transcriptomic data
 clin.data <- clin.data[clin.data$sample %in% overlapped.samples, ]
@@ -57,7 +58,7 @@ phenotype <- phenotype[!grepl("not reported", phenotype$tumor_stage.diagnoses), 
 
 gene.exp <- gene.exp[,phenotype$submitter_id.samples]
 clin.data <- clin.data[clin.data$sample %in% phenotype$submitter_id.samples, ]
-phenotype$tumor_stage.diagnoses <- factor(phenotype$tumor_stage.diagnoses, levels = c("stage iv", "stage iii", "stage ii", "stage i"))
+phenotype$tumor_stage.diagnoses <- factor(phenotype$tumor_stage.diagnoses, levels = c("stage i", "stage ii", "stage iii", "stage iv"))
 phenotype$tumor_stage.diagnoses <- as.numeric(phenotype$tumor_stage.diagnoses)
 clin.data$stage <- phenotype$tumor_stage.diagnoses
 write.table(clin.data, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/clinical.csv", sep = "\t", quote = FALSE, row.names = FALSE)
@@ -82,9 +83,9 @@ plotMA(res)
 ```
 
 ```{r volcano plot}
-
-#plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
-    #xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+#p <- ggplot(data=res, aes(x=log2FoldChange, y=-log10(pvalue))) + geom_point()
+plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
 ```
 
 ```{r Deseq2 with stage}
@@ -106,8 +107,8 @@ plot(res_stage$log2FoldChange, -log10(res_stage$padj), pch=19, col=rgb(0,0,1,.3)
     xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
 ```
 ```{r get significant genes}
-sig_indices <-which(res$padj < 0.01 & (res$log2FoldChange < -2 | res$log2FoldChange > 2))
-sig_indices_stage <-which(res_stage$padj < 0.01 & (res_stage$log2FoldChange < -2 | res_stage$log2FoldChange > 2))
+sig_indices <-which(res$padj < 0.01 & (res$log2FoldChange < -1 | res$log2FoldChange > 1))
+sig_indices_stage <-which(res_stage$padj < 0.01 & (res_stage$log2FoldChange < -1 | res_stage$log2FoldChange > 1))
 ######
 normalizedCounts_stage <- as.data.frame(counts(dds_stage, normalized = TRUE))
 normalizedCounts <- as.data.frame(counts(dds, normalized = TRUE))
@@ -121,6 +122,7 @@ significantGenes_stage <- normalizedCounts_stage[sig_indices_stage,]
 significantGenes <- normalizedCounts[sig_indices,]
 significantGenes_raw <- rawCounts[sig_indices,]
 ```
+
 
 ```{r biomart + cnv}
 cnv_final <- read.csv("/data/gpfs-1/users/phgi10_c/work/Uni/final_project/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)

@@ -4,4 +4,80 @@ author: "Pham Gia Cuong"
 date: '2023-06-28'
 output: html_document
 ---
+```{r import}
+require(DESeq2)
+require('biomaRt')
+require(survival)
+require(dplyr)
+```
+
+```{r}
+clin_stage <- read.csv("/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/clinical.csv",header=TRUE,sep="\t")
+raw_count <- read.csv("/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/count_data.csv",header=TRUE,sep = "\t")
+```
+
+
+```{r}
+#separate clinical data by stage
+clin_stage_list <- split(clin_stage, clin_stage$stage)
+stage_1 <- clin_stage_list$`1`
+stage_2 <- clin_stage_list$`2`
+stage_3 <- clin_stage_list$`3`
+stage_4 <- clin_stage_list$`4`
+
+#separate raw_count data by stage
+
+raw_count_stage1 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_1$sample], as.integer))
+raw_count_stage2 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_2$sample], as.integer)) 
+raw_count_stage3 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_3$sample], as.integer)) 
+raw_count_stage4 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_4$sample], as.integer)) 
+
+row.names(raw_count_stage1) <- raw_count$genes
+row.names(raw_count_stage2) <- raw_count$genes
+row.names(raw_count_stage3) <- raw_count$genes
+row.names(raw_count_stage4) <- raw_count$genes
+```
+
+```{r}
+DEanalysis <- function(gene.exp, clin.data) {
+  dds <- DESeqDataSetFromMatrix(countData=gene.exp,
+                              colData=DataFrame(OS=as.factor(clin.data$OS)),
+                              design=~OS
+                              )
+  dds <- estimateSizeFactors(dds)
+  dds <- DESeq(dds)
+  res <- results(dds)
+  return(res)
+}
+```
+
+#Analysis stage 4
+```{r DE stage4}
+res_4 <- DEanalysis(raw_count_stage4,stage_4)
+
+```
+```{r}
+res_4$gene <- row.names(raw_count)
+plotMA(res_4)
+```
+
+```{r}
+plot(res_4$log2FoldChange, -log10(res_4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+```
+```{r figures-side, fig.show="hold", out.width="50%"}
+hist(res_4$padj)
+hist(as.matrix(raw_count_stage4),col="blue",border="white",breaks=100)
+hist(as.matrix(raw_count_stage4), col="blue", border="white",
+     breaks=20000, xlim=c(0,2000), main="Counts per gene",
+     xlab="Counts (truncated axis)", ylab="Number of genes", 
+     las=1, cex.axis=0.7)
+epsilon <- 1 # pseudo-count to avoid problems with log(0)
+hist(as.matrix(log2(raw_count_stage4 + epsilon)), breaks=100, col="blue", border="white",
+     main="Log2-transformed counts per gene", xlab="log2(counts+1)", ylab="Number of genes", 
+     las=1, cex.axis=0.7)
+```
+```{r}
+```
+
 
