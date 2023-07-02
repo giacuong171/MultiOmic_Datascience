@@ -16,7 +16,6 @@ This part, I loading the raw htseq-count of transcriptomic data, convert it to r
 ```{r reading transcriptomic data}
 gene.exp <- read.table("/fast/work/users/phgi10_c/Uni/final_project/final_data/htseq_count/TCGA-BLCA.htseq_counts.tsv.gz",
                      header = TRUE,sep = "\t",stringsAsFactors = FALSE)
-#colnames(gene.exp) <- gsub("\\.","-",colnames(gene.exp))
 gene.exp <- gene.exp[grepl("ENS", gene.exp$Ensembl_ID), ]
 gene.exp <- gene.exp[, order(names(gene.exp))]
 
@@ -41,6 +40,7 @@ clin.data <- read.csv("/fast/work/users/phgi10_c/Uni/final_project/final_data/TC
 
 clin.data <- clin.data[order(clin.data$sample), ]
 clin.data$sample <- gsub("\\-",".",clin.data$sample)
+color_sample <- ifelse(clin.data$OS == 1, "red", "blue")
 ```
 
 ```{r reading phenotype data}
@@ -65,6 +65,35 @@ write.table(clin.data, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Da
 
 ```
 
+```{r simple analysis, fig.show="hold", out.width="50%"}
+hist(as.matrix(gene.exp),col="blue",border="white",breaks=100)
+hist(as.matrix(gene.exp), col="blue", border="white",
+     breaks=20000, xlim=c(0,2000), main="Counts per gene",
+     xlab="Counts (truncated axis)", ylab="Number of genes", 
+     las=1, cex.axis=0.7)
+epsilon <- 1 # pseudo-count to avoid problems with log(0)
+hist(as.matrix(log2(gene.exp + epsilon)), breaks=100, col="blue", border="white",
+     main="Log2-transformed counts per gene", xlab="log2(counts+1)", ylab="Number of genes", 
+     las=1, cex.axis=0.7)
+
+```
+```{r fig.show="hold", out.width="50%"}
+library(affy)
+plotDensity(log2((as.matrix(gene.exp) + epsilon)), lty=1, col=color_sample, lwd=2)
+
+# Define a function to draw a scatter plot for a pair of variables (samples) with density colors
+plotFun <- function(x,y){ 
+  dns <- densCols(x,y); 
+  points(x,y, col=dns, pch=".", panel.first=grid());  
+#  abline(a=0, b=1, col="brown")
+  }
+
+# Plot the scatter plot for a few pairs of variables selected at random
+set.seed(123) # forces the random number generator to produce fixed results
+pairs(log2(gene.exp[,sample(ncol(gene.exp),5)] + epsilon), 
+      panel=plotFun, lower.panel = NULL)
+```
+
 ```{r Deseq2 without stage}
 dds <- DESeqDataSetFromMatrix(countData=gene.exp,
                               colData=DataFrame(OS=as.factor(clin.data$OS)),
@@ -78,51 +107,124 @@ res <- results(dds)
 res$gene <- genes.arr
 res
 ```
-```{r MA plot}
+
+```{r plot de,  fig.show="hold", out.width="50%"}
 plotMA(res)
+hist(res$padj)
+#### VOLCANO PLOT ####
+alpha <- 0.01 # Threshold on the p-value
+
+par(mfrow=c(1,2))
+
+# Compute significance, with a maximum of 320 for the p-values set to 0 due to limitation of computation precision
+res$sig <- -log10(res$padj)
+sum(is.infinite(res$sig))
+res[is.infinite(res$sig),"sig"] <- 350
+# View(resultDESeq2[is.na(resultDESeq2$pvalue),])
+
+# Select genes with a defined p-value (DESeq2 assigns NA to some genes)
+genes.to.plot <- !is.na(res$pvalue)
+# sum(genes.to.plot)
+range(res[genes.to.plot, "log2FoldChange"])
+# View(resultDESeq2[genes.to.plot,])
+
+## Volcano plot of adjusted p-values
+cols <- densCols(res$log2FoldChange, res$sig)
+cols[res$pvalue ==0] <- "purple"
+res$pch <- 19
+res$pch[res$pvalue ==0] <- 6
+gn.selected <- abs(res$log2FoldChange) > 3 & res$padj < alpha 
+plot(res$log2FoldChange, 
+     res$sig, 
+     col=cols, panel.first=grid(),
+     main="Volcano plot", 
+     xlab="Effect size: log2(fold-change)",
+     ylab="-log10(adjusted p-value)",
+     pch=res$pch, cex=0.4) + abline(v=0) + abline(v=c(-1,1), col="brown") + abline(h=-log10(alpha), col="brown") + text(res$log2FoldChange[gn.selected],
+     -log10(res$padj)[gn.selected],
+     lab=res$gene[gn.selected ], cex=0.6)
+
 ```
 
-```{r volcano plot}
-#p <- ggplot(data=res, aes(x=log2FoldChange, y=-log10(pvalue))) + geom_point()
-plot(res$log2FoldChange, -log10(res$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
-    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
-```
-
-```{r Deseq2 with stage}
-dds_stage <- DESeqDataSetFromMatrix(countData=gene.exp,
-                              colData=DataFrame(OS=as.factor(clin.data$OS),stage=as.factor(clin.data$stage)),
-                              design=~OS + stage
-)
-dds_stage <- estimateSizeFactors(dds_stage)
-dds_stage <- DESeq(dds_stage)
-res_stage <- results(dds_stage)
-```
-
-```{r MA plot}
-plotMA(res_stage)
-```
-
-```{r volcano plot}
-plot(res_stage$log2FoldChange, -log10(res_stage$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
-    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
-```
 ```{r get significant genes}
 sig_indices <-which(res$padj < 0.01 & (res$log2FoldChange < -1 | res$log2FoldChange > 1))
-sig_indices_stage <-which(res_stage$padj < 0.01 & (res_stage$log2FoldChange < -1 | res_stage$log2FoldChange > 1))
-######
-normalizedCounts_stage <- as.data.frame(counts(dds_stage, normalized = TRUE))
+
 normalizedCounts <- as.data.frame(counts(dds, normalized = TRUE))
-rawCounts <- as.data.frame(counts(dds, normalized = FALSE))
+#rawCounts <- as.data.frame(counts(dds, normalized = FALSE))
 #####
-normalizedCounts_stage$genes <- genes.arr
 normalizedCounts$genes <- genes.arr
-rawCounts$genes <- genes.arr
+#rawCounts$genes <- genes.arr
 #####
-significantGenes_stage <- normalizedCounts_stage[sig_indices_stage,]
+#significantGenes_stage <- normalizedCounts_stage[sig_indices_stage,]
 significantGenes <- normalizedCounts[sig_indices,]
-significantGenes_raw <- rawCounts[sig_indices,]
+#significantGenes_raw <- rawCounts[sig_indices,]
 ```
 
+```{r}
+# Computing mean and variance
+mean.counts <- rowMeans(normalizedCounts)
+variance.counts <- apply(normalizedCounts, 1, var)
+
+# sum(mean.counts==0) # Number of completely undetected genes
+
+norm.counts.stats <- data.frame(
+  min=apply(normalizedCounts, 2, min),
+  mean=apply(normalizedCounts, 2, mean),
+  median=apply(normalizedCounts, 2, median),
+  max=apply(normalizedCounts, 2, max),
+  zeros=apply(normalizedCounts==0, 2, sum),
+  percent.zeros=100*apply(normalizedCounts==0, 2, sum)/nrow(normalizedCounts),
+  perc05=apply(normalizedCounts, 2, quantile, 0.05),
+  perc10=apply(normalizedCounts, 2, quantile, 0.10),
+  perc90=apply(normalizedCounts, 2, quantile, 0.90),
+  perc95=apply(normalizedCounts, 2, quantile, 0.95)
+)
+
+head(norm.counts.stats)
+```
+
+```{r}
+# Mean and variance relationship
+mean.var.col <- densCols(x=log2(mean.counts), y=log2(variance.counts))
+plot(x=log2(mean.counts), y=log2(variance.counts), pch=16, cex=0.5, 
+     col=mean.var.col, main="Mean-variance relationship",
+     xlab="Mean log2(normalized counts) per gene",
+     ylab="Variance of log2(normalized counts)",
+     panel.first = grid())
+abline(a=0, b=1, col="brown")
+```
+```{r}
+res <- na.omit(res)
+selectedGenes <- c(
+  "Most significant" =  which.max(res$sig))
+
+  #  top.logFC = rownames(resultDESeq2)[which.max(resultDESeq2$log2FoldChange)])
+#gn.most.sign <- rownames(resultDESeq2)[1]
+#gn.most.diff.val <- counts(dds.norm, normalized=T)[gn.most.sign,]
+
+## Select a gene with small fold change but high significance
+sel1 <- subset(
+  na.omit(res), 
+  sig >= 50 & log2FoldChange > 0 & log2FoldChange < 0.5)
+# dim(sel1)
+selectedGenes <- append(selectedGenes, 
+                         c("Small FC yet significant"=rownames(sel1)[1]))
+
+## Select the non-significant gene with the highest fold change
+sel2 <- subset(x = na.omit(res), padj > alpha & log2FoldChange > 0 & baseMean > 1000 & baseMean < 10000)
+# dim(sel2)
+sel2 <- sel2[order(sel2$log2FoldChange, decreasing = TRUE),][1,]
+selectedGenes <- append(
+  selectedGenes, 
+  c("Non-significant"=rownames(sel2)[1]))
+
+par(mfrow=c(length(selectedGenes),1))
+for (g in selectedGenes) {
+  barplot(as.matrix(normalizedCounts[g,]), 
+          col=color_sample, 
+          main=g, las=2, cex.names=0.5)
+}
+```
 
 ```{r biomart + cnv}
 cnv_final <- read.csv("/data/gpfs-1/users/phgi10_c/work/Uni/final_project/cnv_analysis/final_cnv.csv",stringsAsFactors=FALSE, header=TRUE)
@@ -140,25 +242,27 @@ annotLookup <- getBM(
 head(annotLookup)
 filt.annotLookup <- subset(annotLookup, hgnc_symbol != '')
 ```
-
+significant genes (ENSEMBLE ID) this one is from gene expression analysis
+genes which contains CNVs -> gene ID (ENSEMBLE ID) this one is from cnv analysis
+intersect this two genes
 ```{r get overlapped genes of CNV and transcriptomic analysis}
 matched.genes <- filt.annotLookup[filt.annotLookup$hgnc_symbol %in% cnv_final$GeneSymbol, ]
 cnv_genes_exp <- which(significantGenes$genes %in% matched.genes$ensembl_gene_id)
 cnv_gene_raw <- which(significantGenes_raw$genes %in% matched.genes$ensembl_gene_id)
-cnv_genes_exp_stage <- which(significantGenes_stage$genes %in% matched.genes$ensembl_gene_id)
+#cnv_genes_exp_stage <- which(significantGenes_stage$genes %in% matched.genes$ensembl_gene_id)
 ```
 
 ```{r nhap}
 sig_genes_ann <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes$genes),]
-sig_genes_ann_stage <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes_stage$genes),]
+#sig_genes_ann_stage <- matched.genes[which(matched.genes$ensembl_gene_id %in% significantGenes_stage$genes),]
 ```
 
 ```{r final data for training}
 significantGenes_cnv <- significantGenes[cnv_genes_exp,]
 significantGenes_cnv_raw <- significantGenes_raw[cnv_gene_raw,]
-significantGenes_cnv_stage <- significantGenes_stage[cnv_genes_exp_stage,]
+#significantGenes_cnv_stage <- significantGenes_stage[cnv_genes_exp_stage,]
 write.table(significantGenes_cnv, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(significantGenes_cnv_stage, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_stage.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+#write.table(significantGenes_cnv_stage, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_stage.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 write.table(significantGenes_cnv_raw, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/gene_exp_analysis/cnv_genes_exp_raw.combine.csv", sep = "\t", quote = FALSE, row.names = FALSE)
 ```
 
@@ -178,7 +282,9 @@ cox_model <- coxph(surv_obj ~ . - Row.names - sample - X_PATIENT - OS - OS.time 
 ```
 
 ```{r}
-summary(cox_model)
+sv_res <- summary(cox_model)
+p_values <- summary(cox_model)$coefficients[, "Pr(>|z|)"]
+sv_sig_count <- significantGenes_cnv[which(p_values<0.05),]
 ```
 
 ```{r}
@@ -191,8 +297,27 @@ row.names(matched.genes) <- matched.genes$ensembl_gene_id
 matched.genes[gene_id,]
 ```
 
+```{r FUNCTIONAL ENRICHTMENT}
+## JvH: I TEMPORARILY DISACTIVATE THIS SECTIO BECAUSE I HAVE NO INTERNET CONNECTION
 
+library(gProfileR)
 
+resultDESeq2.df <- na.omit(data.frame(res))
+induced.sign <- rownames(resultDESeq2.df)[resultDESeq2.df$log2FoldChange >= 2 &  resultDESeq2.df$padj < alpha]
+# head(induced.sign)
+# names(term.induced)
 
-
+term.induced <- gprofiler(query=induced.sign, organism="scerevisiae")
+term.induced <- term.induced[order(term.induced$p.value),]
+# term.induced$p.value
+kable(term.induced[1:10,c("term.name",
+                      "term.size",
+                      "query.size",
+                      "overlap.size",
+                      "recall",
+                      "precision",
+                      "p.value", 
+                      "intersection")], 
+      format.args=c(engeneer=TRUE, digits=3), caption="**Table: functional analysis wit gProfileR. ** ")
+```
 
