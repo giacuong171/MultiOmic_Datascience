@@ -1,0 +1,116 @@
+---
+title: "stage_DEG_analysis"
+author: "Pham Gia Cuong"
+date: '2023-07-11'
+output: html_document
+---
+
+```{r}
+require(DESeq2)
+require(data.table)
+```
+
+```{r}
+clin_stage <- read.csv("../..//MultiOmic_Datascience/results/gene_exp_analysis/clinical.csv",header=TRUE,sep="\t")
+raw_count <- read.csv("../../MultiOmic_Datascience/results/gene_exp_analysis/count_data.csv",header=TRUE,sep = "\t")
+
+```
+
+
+```{r}
+#separate clinical data by stage
+clin_stage_list <- split(clin_stage, clin_stage$stage)
+stage_1 <- clin_stage_list$`1`
+stage_2 <- clin_stage_list$`2`
+stage_3 <- clin_stage_list$`3`
+stage_4 <- clin_stage_list$`4`
+
+#separate raw_count data by stage
+
+raw_count_stage1 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_1$sample], as.integer))
+raw_count_stage2 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_2$sample], as.integer)) 
+raw_count_stage3 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_3$sample], as.integer)) 
+raw_count_stage4 <- as.data.frame(lapply(raw_count[,colnames(raw_count) %in% stage_4$sample], as.integer)) 
+
+row.names(raw_count_stage1) <- row.names(raw_count)
+row.names(raw_count_stage2) <- row.names(raw_count)
+row.names(raw_count_stage3) <- row.names(raw_count)
+row.names(raw_count_stage4) <- row.names(raw_count)
+
+raw_count_stage4 = raw_count_stage4[rowSums(raw_count_stage4) >5,]
+raw_count_stage3 = raw_count_stage3[rowSums(raw_count_stage3) >5,]
+raw_count_stage2 = raw_count_stage2[rowSums(raw_count_stage2) >5,]
+genes_4 <- row.names(raw_count_stage4)
+genes_3 <- row.names(raw_count_stage3)
+genes_2 <- row.names(raw_count_stage2)
+```
+
+```{r}
+stage_2_3_count_matrix <- cbind(raw_count_stage2, raw_count_stage3)
+label_2_3 <- rbind(stage_2,stage_3)
+stage_2_4_count_matrix <- cbind(raw_count_stage2, raw_count_stage4)
+label_2_4 <- rbind(stage_2,stage_4)
+stage_3_4_count_matrix <- cbind(raw_count_stage3, raw_count_stage4)
+label_3_4 <- rbind(stage_3,stage_4)
+
+```
+
+```{r}
+DEanalysis <- function(gene.exp, clin.data) {
+  dds <- DESeqDataSetFromMatrix(countData=gene.exp,
+                              colData=DataFrame(stage=as.factor(clin.data$stage)),
+                              design=~stage
+                              )
+  dds <- estimateSizeFactors(dds)
+  dds <- DESeq(dds)
+  res <- results(dds)
+  return(res)
+}
+```
+
+```{r}
+res_2_3 <- DEanalysis(stage_2_3_count_matrix,label_2_3)
+res_2_4 <- DEanalysis(stage_2_4_count_matrix,label_2_4)
+res_3_4 <- DEanalysis(stage_3_4_count_matrix,label_3_4)
+```
+```{r, fig.show="hold", out.width="50%"}
+#res_2_3$gene <- row.names(raw_count)
+plotMA(res_2_3)
+plot(res_2_3$log2FoldChange, -log10(res_2_3$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+hist(res_2_3$padj)
+```
+```{r, fig.show="hold", out.width="50%"}
+#res_2_3$gene <- row.names(raw_count)
+plotMA(res_2_4)
+plot(res_2_4$log2FoldChange, -log10(res_2_4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+hist(res_2_4$padj)
+```
+
+```{r, fig.show="hold", out.width="50%"}
+#res_2_3$gene <- row.names(raw_count)
+plotMA(res_3_4)
+plot(res_3_4$log2FoldChange, -log10(res_3_4$padj), pch=19, col=rgb(0,0,1,.3), xlim=c(-6,6),
+    xlab="Log2 fold change",  ylab= "-Log10 adjusted p-value", bty="l")
+hist(res_3_4$padj)
+```
+```{r}
+sig_genes_2_3 <- which(res_2_3$padj < 0.05 & (res_2_3$log2FoldChange < -1 | res_2_3$log2FoldChange > 1))
+sig_genes_3_4 <- which(res_3_4$padj < 0.05 & (res_3_4$log2FoldChange < -1 | res_3_4$log2FoldChange > 1))
+sig_genes_2_4 <- which(res_2_4$padj < 0.05 & (res_2_4$log2FoldChange < -1 | res_2_4$log2FoldChange > 1))
+```
+
+```{r}
+#Union three significant genes
+union_sig_genes <- union(union(sig_genes_2_3,sig_genes_3_4),sig_genes_2_4)
+#intersect three significant genes
+its_sig_genes <- intersect(intersect(sig_genes_2_3,sig_genes_3_4),sig_genes_2_4)
+#different three significant genes
+diff_sig_genes <- setdiff(union_sig_genes,its_sig_genes)
+```
+
+```{r}
+```
+
+

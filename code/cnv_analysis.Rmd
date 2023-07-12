@@ -8,7 +8,11 @@ output: html_document
 ```{r}
 require(data.table)
 CN <- read.table("/data/gpfs-1/users/phgi10_c/work/Uni/final_project/final_data/no_FFPE_CNV/cnv.segment.seg.txt", sep="\t", stringsAsFactors=FALSE, header=TRUE)
-clinical <- read.table("/data/gpfs-1/users/phgi10_c/work/Uni/final_project/final_data/survival.txt",sep = "\t", stringsAsFactors=FALSE, header=TRUE)
+clinical <- read.table("/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/data/TCGA-BLCA.survival.tsv",sep = "\t", stringsAsFactors=FALSE, header=TRUE)
+```
+
+```{r}
+#sample_clin <- gsub("TCGA-[0-9A-Z]*-[0-9A-Z]*-","",clin)
 ```
 
 ```{r}
@@ -20,7 +24,7 @@ clin_types <- gsub("TCGA-[A-Z0-9]*-[A-Z0-9]*-", "", clinical[,1])
 unique(clin_types)
 #"01" "11" "06"
 unique(types)
-samples <- unique(gsub("-[0-9A-Z]*-[0-9A-Z]*-[0-9A-Z]*-01$", "", CN[,1]))
+samples <- unique(gsub("-[0-9A-Z]*-[0-9A-Z]*-01$", "", CN[,1]))
 #"11A" "01A" "10A" "10B" "06A" "10C" "01B" "10D" "10F" "10G"
 # NB - in the next 2 lines, it is important to account for all types that are listed from unique(types) command
 matched.normal <- c("10A", "10B","10C","10D","10F","10G", "11A", "11B")

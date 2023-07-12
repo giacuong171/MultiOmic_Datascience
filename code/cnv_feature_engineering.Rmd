@@ -1,0 +1,22 @@
+---
+title: "cnv_feature_engineering"
+author: "Pham Gia Cuong"
+date: '2023-07-05'
+output: html_document
+---
+
+```{r}
+require(data.table)
+clinical <- read.table("../results/gene_exp_analysis/clinical.csv",sep = "\t", stringsAsFactors=FALSE, header=TRUE)
+CN <- read.table("/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/data/cnv.segment.seg.txt", sep="\t", stringsAsFactors=FALSE, header=TRUE)
+CN$Sample <- gsub("-[0-9A-Z]*-[0-9A-Z]*-01$", "", CN$Sample)
+CN$Sample <- gsub("-",".",CN$Sample)
+```
+```{r}
+CN <- CN[CN$Sample %in% clinical$sample, ]
+CN
+```
+
+```{r}
+write.table(CN, file = "/data/gpfs-1/users/phgi10_c/work/Uni/MultiOmic_Datascience/results/cnv_analysis/filtered_samples_cnv.csv", sep = "\t", quote = FALSE, row.names = FALSE)
+```

@@ -303,7 +303,7 @@ matched.genes[gene_id,]
 library(gProfileR)
 
 resultDESeq2.df <- na.omit(data.frame(res))
-induced.sign <- rownames(resultDESeq2.df)[resultDESeq2.df$log2FoldChange >= 2 &  resultDESeq2.df$padj < alpha]
+induced.sign <- rownames(resultDESeq2.df)[abs(resultDESeq2.df$log2FoldChange) >= 2 &  resultDESeq2.df$padj < alpha]
 # head(induced.sign)
 # names(term.induced)
 
